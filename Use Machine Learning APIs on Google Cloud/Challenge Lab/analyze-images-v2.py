@@ -1,9 +1,5 @@
-# Dataset: image_classification_dataset
-# Table name: image_text_detail
 import os
 import sys
-
-# Import Google Cloud Library modules
 from google.cloud import storage, bigquery, language, vision, translate_v2
 
 if ('GOOGLE_APPLICATION_CREDENTIALS' in os.environ):
@@ -48,16 +44,14 @@ print('Processing image files from GCS. This will take a few minutes..')
 
 # Process files from Cloud Storage and save the result to send to BigQuery
 for file in files:
-    if file.name.endswith('jpg') or  file.name.endswith('png'):
+    if file.name.endswith('jpg') or file.name.endswith('png'):
         file_content = file.download_as_string()
 
-        # TBD: Create a Vision API image object called image_object
-        # Ref: https://googleapis.dev/python/vision/latest/gapic/v1/types.html#google.cloud.vision_v1.types.Image
+        # Create Vision API image object
+        image = vision.Image(content=file_content)
 
-
-        # TBD: Detect text in the image and save the response data into an object called response
-        # Ref: https://googleapis.dev/python/vision/latest/gapic/v1/api.html#google.cloud.vision_v1.ImageAnnotatorClient.document_text_detection
-
+        # Detect text in the image using Vision API
+        response = vision_client.document_text_detection(image=image)
 
         # Save the text content found by the vision API into a variable called text_data
         text_data = response.text_annotations[0].description
@@ -65,33 +59,30 @@ for file in files:
         # Save the text detection response data in <filename>.txt to cloud storage
         file_name = file.name.split('.')[0] + '.txt'
         blob = bucket.blob(file_name)
-        # Upload the contents of the text_data string variable to the Cloud Storage file
         blob.upload_from_string(text_data, content_type='text/plain')
 
-        # Extract the description and locale data from the response file
-        # into variables called desc and locale
-        # using response object properties e.g. response.text_annotations[0].description
+        # Extract description and locale from the response
         desc = response.text_annotations[0].description
         locale = response.text_annotations[0].locale
 
-        # TBD: Save the description as the translated text into target_language eg. 'en', 'fe', and 'ja' according to the lab manual .
-        if locale == '':
-            translated_text = desc
-        else:
-            # TBD: According to the target language pass the description data to the translation API
-            # ref: https://googleapis.dev/python/translation/latest/client.html#google.cloud.translate_v2.client.Client.translate
-            # Set the target_language locale to according to the lab activity)
-
+        # Translate text if necessary
+        if locale != '':
+            translation = translate_client.translate(desc, target_language='ja')  # Change 'en' to desired target language
             translated_text = translation['translatedText']
+        else:
+            translated_text = desc
+
         print(translated_text)
 
-        # if there is response data save the original text read from the image,
-        # the locale, translated text, and filename
+        # If there is response data, append the information to rows_for_bq
         if len(response.text_annotations) > 0:
             rows_for_bq.append((desc, locale, translated_text, file.name))
 
 print('Writing Vision API image data to BigQuery...')
-# Write original text, locale and translated text to BQ
-# TBD: When the script is working uncomment the next line to upload results to BigQuery
-# errors = bq_client.insert_rows(table, rows_for_bq)
-assert errors == []
+
+# Write original text, locale, and translated text to BigQuery
+errors = bq_client.insert_rows(table, rows_for_bq)
+if errors:
+    print(f"Errors occurred while inserting data into BigQuery: {errors}")
+else:
+    print("Data successfully inserted into BigQuery.")
